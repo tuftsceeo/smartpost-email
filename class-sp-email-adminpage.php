@@ -5,6 +5,7 @@ if( !class_exists('SP_Email_Admin_Page') ){
         function __construct(){
             add_action( 'admin_menu', array($this, 'sp_add_email_admin_page') );
             add_action( 'admin_enqueue_scripts', array($this, 'admin_enqueue_scripts') );
+            add_action( 'admin_init', array( $this, 'page_init' ) );
         }
 
         /**
@@ -12,7 +13,14 @@ if( !class_exists('SP_Email_Admin_Page') ){
          */
         function sp_add_email_admin_page(){
             if( ( is_plugin_active( "SmartPost2.0/smartpost.php" ) || is_plugin_active( "smartpost-templates/smartpost.php" ) ) && defined( "SP_PLUGIN_NAME" ) ){
-                add_submenu_page( 'smartpost', 'E-mail Settings', 'E-mail Settings', 'edit_dashboard', 'sp-email-settings', array($this, 'sp_render_email_admin_page') );
+                add_submenu_page(
+                    'smartpost',
+                    'E-mail Settings',
+                    'E-mail Settings',
+                    'edit_dashboard',
+                    'sp-email-settings',
+                    array($this, 'sp_render_email_admin_page')
+                );
             }
         }
 
@@ -20,12 +28,16 @@ if( !class_exists('SP_Email_Admin_Page') ){
          * Loads css/js files
          */
         function admin_enqueue_scripts( $hook ){
-
             if( 'toplevel_page_smartpost' != $hook && 'smartpost_page_sp-cat-page' != $hook && 'smartpost_page_sp-email-settings' != $hook ){
                 return;
             }
-
             wp_enqueue_style( 'sp-email-admin-page-css', plugins_url('css/sp-email-admin-page.css', __FILE__) );
+        }
+
+        /**
+         * Registers sp-email settings page
+         */
+        function page_init(){
 
         }
 
@@ -38,8 +50,10 @@ if( !class_exists('SP_Email_Admin_Page') ){
                 <h2 id="sp-email-admin-page-header"><?php echo SP_EMAIL_PLUGIN_NAME ?></h2>
                 <small>(Version <?php echo SP_EMAIL_VERSION ?>)</small>
                 <p>This plugin connects to any IMAP E-mail server and converts e-mails in an inbox into SmartPost "style" posts.</p>
-                <p>Below you can configure the inbox you'd like to connect to:</p>
+                <!-- <p>Below you can configure the inbox you'd like to connect to:</p> -->
             <?php
+            $sp_fetch_mail = new SP_Fetch_Mail();
+            $sp_fetch_mail->sp_fetch_mail();
         }
     }
     $sp_admin_page = new SP_Email_Admin_Page();
