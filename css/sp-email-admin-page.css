@@ -1,0 +1,11 @@
+#sp-email-admin-page-header:before{
+    content: "\f466";
+    display: inline-block;
+    font: 400 40px/1 dashicons;
+    speak: none;
+    margin: 2px 0;
+    width: 50px;
+    -webkit-font-smoothing: antialiased!important;
+    color: #0074a2;
+    vertical-align: middle;
+}
