@@ -119,7 +119,7 @@ if ( !class_exists("SP_Fetch_Mail") ){
                     // correspond attachments with components
                     $file_ext = strtolower( pathinfo( $full_filename, PATHINFO_EXTENSION ) );
 
-                    error_log( 'attachment extension: ' . $file_ext );
+                    //error_log( 'attachment extension: ' . $file_ext );
 
                     switch( $file_ext ){
                         case 'jpg' :
@@ -162,16 +162,40 @@ if ( !class_exists("SP_Fetch_Mail") ){
          */
         function sp_fetch_mail(){
 
-            // @todo: grab these parameters from an option
-            $hostname = '{imap.gmail.com:993/imap/ssl/novalidate-cert}INBOX';
-            $username = 'k12engineering@gmail.com';
-            $password = 'cee0prek!474';
+            $sp_email_settings = get_option( 'sp_email_settings' );
+
+            $imap_server_name = $sp_email_settings['imap_server_name'];
+            $imap_server_username = $sp_email_settings['imap_server_username'];
+            $imap_server_password = $sp_email_settings['imap_server_password'];
+
+            if( empty( $imap_server_name ) ){
+                error_log( 'IMAP server name not provided!');
+                return;
+            }
+
+            if( empty( $imap_server_username ) ){
+                error_log( 'IMAP server user name not provided!');
+                return;
+            }
+
+            if( empty( $imap_server_password ) ){
+                error_log( 'IMAP server password not provided!');
+                return;
+            }
+
+            $hostname = '{' . $imap_server_name . ':993/imap/ssl/novalidate-cert}INBOX';
 
             /* try to connect */
-            $inbox = imap_open($hostname,$username,$password, OP_DEBUG) or die( print_r(imap_errors(), true) );
+            $inbox = imap_open( $hostname, $imap_server_username, $imap_server_password, OP_DEBUG ) or die( print_r(imap_errors(), true) );
 
-            // grab emails, @todo: create a flag for ALL or NEW
-            $emails = imap_search($inbox, 'ALL' );
+            // grab emails
+            $search_criteria = isset( $sp_email_settings['sp_email_post_new_emails'] ) ? 'UNSEEN' : 'ALL';
+
+            //error_log( 'Searching ' . $search_criteria . ' emails' );
+
+            $emails = imap_search($inbox, $search_criteria );
+
+            //error_log( print_r( $emails, true ) );
 
             // if emails are returned, cycle through each...
             if( $emails ) {
@@ -180,7 +204,7 @@ if ( !class_exists("SP_Fetch_Mail") ){
 
                     // Get e-mail properties
                     $overview  = imap_fetch_overview( $inbox, $email_number, 0 );
-                    //$message   = imap_fetchbody( $inbox, $email_number, 2 );
+                    $message   = quoted_printable_decode( imap_fetchbody( $inbox, $email_number, 1.1 ) );
                     $header    = imap_headerinfo( $inbox, $email_number );
                     $structure = imap_fetchstructure($inbox, $email_number);
 
@@ -193,12 +217,14 @@ if ( !class_exists("SP_Fetch_Mail") ){
 
                     if( $email_author !== false ){
 
+                        $default_sp_cat =  $sp_email_settings['sp_email_default_template'];
+
                         $post_id = wp_insert_post(
                             array(
                                 'post_title' => $overview[0]->subject,
                                 'post_author' => $email_author_id,
                                 'post_status' => 'publish',
-                                'post_category' => array( 2 )
+                                'post_category' => array( $default_sp_cat )
                             )
                         );
                         $sp_post = new sp_post( $post_id );
@@ -216,22 +242,22 @@ if ( !class_exists("SP_Fetch_Mail") ){
                             foreach( $sp_post_comps as $post_comp ){
                                 // If a content component exists, update it
                                 if( is_a( $post_comp, 'sp_postContent' ) ){
-                                    error_log( 'Content component exists! Attempting to update it ... ' );
-                                    //$post_comp->update( $message );
+                                    //error_log( 'Content component exists! Attempting to update it ... ' );
+                                    $post_comp->update( $message );
                                     $content_created = true;
                                 }
 
                                 if( is_a( $post_comp, 'sp_postGallery') ){
                                     $sp_gallery_comp = $post_comp;
-                                    error_log( 'Gallery component exists! ... ' );
+                                    //error_log( 'Gallery component exists! ... ' );
                                 }
                                 if( is_a( $post_comp, 'sp_postVideo') ){
                                     $sp_video_comp = $post_comp;
-                                    error_log( 'Video component exists! ... ' );
+                                    //error_log( 'Video component exists! ... ' );
                                 }
                                 if( is_a( $post_comp, 'sp_postAttachments') ){
                                     $sp_attachments_comp = $post_comp;
-                                    error_log( 'Attachments component exists! ... ' );
+                                    //error_log( 'Attachments component exists! ... ' );
                                 }
                             }
 
