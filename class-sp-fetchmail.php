@@ -19,7 +19,7 @@ if ( !class_exists("SP_Fetch_Mail") ){
          * All other file types will be added to the attachment component
          * @link http://www.codediesel.com/php/downloading-gmail-attachments-using-php/
          *
-         * @param sp_post $sp_post
+         * @param $post_id
          * @param $gallery_comp
          * @param $video_comp
          * @param $attach_comp
@@ -28,8 +28,8 @@ if ( !class_exists("SP_Fetch_Mail") ){
          * @param $email_number
          * @param $email_author_id
          */
-        function sp_load_attachments( sp_post $sp_post, sp_postGallery $gallery_comp, sp_postVideo $video_comp,
-                                      sp_postAttachments $attach_comp, $email_structure, $inbox, $email_number, $email_author_id ){
+        function sp_load_attachments( $post_id, sp_postGallery &$gallery_comp, sp_postVideo &$video_comp,
+                                      sp_postAttachments &$attach_comp, $email_structure, $inbox, $email_number, $email_author_id ){
 
             $attachments = array();
 
@@ -110,25 +110,26 @@ if ( !class_exists("SP_Fetch_Mail") ){
                     /* Prefix the email number to the filename in case two emails
                      * have the attachment with the same file name.
                      */
-                    $full_filename = $wp_upload_dir['path'] . $email_number . "-" . $filename;
+                    $full_filename = $wp_upload_dir['path'] . DIRECTORY_SEPARATOR . $email_number . "-" . $filename;
 
                     $fp = fopen( $full_filename, "w+");
                     fwrite( $fp, $attachment['attachment'] );
                     fclose( $fp );
 
-                    $wp_post = $sp_post->getwpPost();
-                    $attach_id = sp_core::create_attachment( $full_filename, $wp_post->ID, $filename, $email_author_id );
-
                     // correspond attachments with components
                     $file_ext = strtolower( pathinfo( $full_filename, PATHINFO_EXTENSION ) );
+
+                    error_log( 'attachment extension: ' . $file_ext );
+
                     switch( $file_ext ){
-                        case '.jpg' :
-                        case '.jpeg':
-                        case '.png' :
-                        case '.gif' :
-                        case '.tiff':
-                        case '.tif' :
+                        case 'jpg' :
+                        case 'jpeg':
+                        case 'png' :
+                        case 'gif' :
+                        case 'tiff':
+                        case 'tif' :
                             // add to gallery component
+                            $attach_id = sp_core::create_attachment( $full_filename, $post_id, $filename, $email_author_id );
                             $allowed_exts = array( 'jpeg', 'jpg', 'tiff', 'tif' );
                             if( in_array( $file_ext, $allowed_exts) ){
                                 sp_core::fixImageOrientation( get_attached_file( $attach_id ) );
@@ -136,14 +137,18 @@ if ( !class_exists("SP_Fetch_Mail") ){
                             array_push( $gallery_comp->attachmentIDs, $attach_id );
                             $gallery_comp->update();
                             break;
-                        case '.mov':
-                        case '.mp4':
-                        case '.avi':
-                        case '.m4v':
+                        case 'mov':
+                        case 'mp4':
+                        case 'avi':
+                        case 'm4v':
                             // add to video component & convert
+                            $video_comp::encode_via_ffmpeg( $video_comp, $full_filename );
                             break;
                         default:
                             // add to attachments component
+                            $attach_id = sp_core::create_attachment( $full_filename, $post_id, $filename, $email_author_id );
+                            array_push( $attach_comp->attachmentIDs, $attach_id );
+                            $attach_comp->update();
                             break;
                     }
                 }
@@ -175,15 +180,14 @@ if ( !class_exists("SP_Fetch_Mail") ){
 
                     // Get e-mail properties
                     $overview  = imap_fetch_overview( $inbox, $email_number, 0 );
-                    $message   = imap_fetchbody( $inbox, $email_number, 2 );
+                    //$message   = imap_fetchbody( $inbox, $email_number, 2 );
                     $header    = imap_headerinfo( $inbox, $email_number );
                     $structure = imap_fetchstructure($inbox, $email_number);
-
-                    //echo print_r( $overview, true );
 
                     // Check that the email received exists in a user
                     $from_address = $header->from[0]->mailbox . "@" . $header->from[0]->host;
                     $email_author = get_user_by( 'email', $from_address );
+                    $email_author_id = $email_author->ID;
 
                     echo 'E-mail recieved from: ' . $from_address . '<br />';
 
@@ -192,7 +196,7 @@ if ( !class_exists("SP_Fetch_Mail") ){
                         $post_id = wp_insert_post(
                             array(
                                 'post_title' => $overview[0]->subject,
-                                'post_author' => $email_author,
+                                'post_author' => $email_author_id,
                                 'post_status' => 'publish',
                                 'post_category' => array( 2 )
                             )
@@ -200,6 +204,10 @@ if ( !class_exists("SP_Fetch_Mail") ){
                         $sp_post = new sp_post( $post_id );
 
                         $sp_post_comps = $sp_post->getComponents();
+
+                        $sp_gallery_comp     = null;
+                        $sp_video_comp       = null;
+                        $sp_attachments_comp = null;
 
                         if( !empty( $sp_post_comps ) ){
 
@@ -209,8 +217,21 @@ if ( !class_exists("SP_Fetch_Mail") ){
                                 // If a content component exists, update it
                                 if( is_a( $post_comp, 'sp_postContent' ) ){
                                     error_log( 'Content component exists! Attempting to update it ... ' );
-                                    $post_comp->update( $message );
+                                    //$post_comp->update( $message );
                                     $content_created = true;
+                                }
+
+                                if( is_a( $post_comp, 'sp_postGallery') ){
+                                    $sp_gallery_comp = $post_comp;
+                                    error_log( 'Gallery component exists! ... ' );
+                                }
+                                if( is_a( $post_comp, 'sp_postVideo') ){
+                                    $sp_video_comp = $post_comp;
+                                    error_log( 'Video component exists! ... ' );
+                                }
+                                if( is_a( $post_comp, 'sp_postAttachments') ){
+                                    $sp_attachments_comp = $post_comp;
+                                    error_log( 'Attachments component exists! ... ' );
                                 }
                             }
 
@@ -219,6 +240,9 @@ if ( !class_exists("SP_Fetch_Mail") ){
                                 // Capture this and report it back to the user
                             }
                         }
+
+                        self::sp_load_attachments( $post_id, $sp_gallery_comp, $sp_video_comp, $sp_attachments_comp, $structure, $inbox, $email_number, $email_author_id );
+
                         $wp_post = $sp_post->getwpPost();
                         echo 'Post titled: "<a href="' . get_permalink( $wp_post->ID ) . '"" />' . $wp_post->post_title . '</a>" created via e-mail! <br />';
                         echo '<br /><br />';
