@@ -8,6 +8,168 @@ if ( !class_exists("SP_Fetch_Mail") ){
         }
 
         /**
+         * Connects to the inbox and fetches new mail.
+         *
+         * @see sp_create_post_from_email();
+         */
+        function sp_fetch_mail(){
+
+            $sp_email_settings = get_option( 'sp_email_settings' );
+
+            $imap_server_name = $sp_email_settings['imap_server_name'];
+            $imap_server_username = $sp_email_settings['imap_server_username'];
+            $imap_server_password = $sp_email_settings['imap_server_password'];
+
+            if( empty( $imap_server_name ) ){
+                error_log( 'IMAP server name not provided!');
+                return;
+            }
+
+            if( empty( $imap_server_username ) ){
+                error_log( 'IMAP server user name not provided!');
+                return;
+            }
+
+            if( empty( $imap_server_password ) ){
+                error_log( 'IMAP server password not provided!');
+                return;
+            }
+
+            $hostname = '{' . $imap_server_name . ':993/imap/ssl/novalidate-cert}INBOX';
+
+            // try to connect
+            $inbox = imap_open( $hostname, $imap_server_username, $imap_server_password, OP_DEBUG ) or die( print_r(imap_errors(), true) );
+
+            // grab emails
+            $search_criteria = isset( $sp_email_settings['sp_email_post_new_emails'] ) ? 'UNSEEN' : 'ALL';
+
+            //error_log( 'Searching ' . $search_criteria . ' emails' );
+
+            $emails = imap_search($inbox, $search_criteria );
+
+            //error_log( print_r( $emails, true ) );
+
+            // if emails are returned, cycle through each...
+            if( $emails ) {
+                rsort( $emails );
+                foreach( $emails as $email_number ) {
+
+                    // Get e-mail properties
+                    $overview  = imap_fetch_overview( $inbox, $email_number, 0 );
+                    $message   = quoted_printable_decode( imap_fetchbody( $inbox, $email_number, 1.1 ) );
+
+                    if( empty( $message ) ){
+                        $message = imap_fetchbody( $inbox, $email_number, 2 );
+                    }
+
+                    $header    = imap_headerinfo( $inbox, $email_number );
+                    $structure = imap_fetchstructure($inbox, $email_number);
+
+                    // Check that the email received exists in a user
+                    $from_address = $header->from[0]->mailbox . "@" . $header->from[0]->host;
+                    $email_author = get_user_by( 'email', $from_address );
+                    $email_author_id = $email_author->ID;
+
+                    echo 'E-mail recieved from: ' . $from_address . '<br />';
+
+                    if( $email_author !== false ){
+
+                        $subject = $overview[0]->subject;
+
+                        if( $sp_email_settings['sp_email_cat_tag'] ){
+                            // Try and get a category name via subject line (format should be "<category-name>:Title of the post")
+                            $maybe_get_cat = substr( $subject, 0, strpos( $subject, ':' ) );
+                        }
+
+                        error_log( 'maybe_get_cat: ' . $maybe_get_cat );
+
+                        if( isset( $maybe_get_cat ) && !empty( $maybe_get_cat ) ){
+
+                            // 1. Try and get cat ID via un-sanitized title
+                            $default_sp_cat = get_cat_ID( $maybe_get_cat );
+
+                            // 2. If we didn't get anything, try to get category via slug/sanitized title
+                            if( $default_sp_cat === 0 ){
+
+                                $default_sp_cat = get_term_by('slug', sanitize_title( $maybe_get_cat ), 'category' );
+
+                                if( $default_sp_cat === false ){
+                                    // 3. Otherwise fallback to default category
+                                    $default_sp_cat = $sp_email_settings['sp_email_default_template'];
+                                }else{
+                                    $default_sp_cat = $default_sp_cat->term_id;
+                                }
+                            }
+
+                            // Cut the post title after ':'
+                            $post_title = substr( $subject, strpos( $subject, ':' ) + 1 );
+
+                        }else{
+                            // If we can find a category, fallback to the default cat
+                            $default_sp_cat = $sp_email_settings['sp_email_default_template'];
+                            $post_title = $overview[0]->subject;
+                        }
+
+                        $post_id = wp_insert_post(
+                            array(
+                                'post_title' => trim( $post_title ),
+                                'post_author' => $email_author_id,
+                                'post_status' => 'publish',
+                                'post_category' => array( $default_sp_cat )
+                            )
+                        );
+                        $sp_post = new sp_post( $post_id );
+
+                        $sp_post_comps = $sp_post->getComponents();
+
+                        $sp_gallery_comp     = null;
+                        $sp_video_comp       = null;
+                        $sp_attachments_comp = null;
+
+                        if( !empty( $sp_post_comps ) ){
+
+                            // Flag to test if content was created or not
+                            $content_created = false;
+                            foreach( $sp_post_comps as $post_comp ){
+                                // If a content component exists, update it
+                                if( is_a( $post_comp, 'sp_postContent' ) ){
+                                    //error_log( 'Content component exists! Attempting to update it ... ' );
+                                    $post_comp->update( $message );
+                                    $content_created = true;
+                                }
+
+                                if( is_a( $post_comp, 'sp_postGallery') ){
+                                    $sp_gallery_comp = $post_comp;
+                                    //error_log( 'Gallery component exists! ... ' );
+                                }
+                                if( is_a( $post_comp, 'sp_postVideo') ){
+                                    $sp_video_comp = $post_comp;
+                                    //error_log( 'Video component exists! ... ' );
+                                }
+                                if( is_a( $post_comp, 'sp_postAttachments') ){
+                                    $sp_attachments_comp = $post_comp;
+                                    //error_log( 'Attachments component exists! ... ' );
+                                }
+                            }
+
+                            // If there is no content component, then we've got bad news!
+                            if( $content_created === false ){
+                                // Capture this and report it back to the user
+                            }
+                        }
+
+                        self::sp_load_attachments( $post_id, $sp_gallery_comp, $sp_video_comp, $sp_attachments_comp, $structure, $inbox, $email_number, $email_author_id );
+
+                        $wp_post = $sp_post->getwpPost();
+                        echo 'Post titled: "<a href="' . get_permalink( $wp_post->ID ) . '"" />' . $wp_post->post_title . '</a>" created via e-mail! <br />';
+                        echo '<br /><br />';
+                    }
+                } // end foreach
+            }
+            imap_close($inbox);
+        }
+
+        /**
          * Handles e-mail attachments and adds them to the appropriate components
          * If attachment is an image (.jpg, .jpeg, .png, .gif), then it will be added
          * to a "Picture component". If more than one image exists, it will be
@@ -28,8 +190,8 @@ if ( !class_exists("SP_Fetch_Mail") ){
          * @param $email_number
          * @param $email_author_id
          */
-        function sp_load_attachments( $post_id, sp_postGallery &$gallery_comp, sp_postVideo &$video_comp,
-                                      sp_postAttachments &$attach_comp, $email_structure, $inbox, $email_number, $email_author_id ){
+        function sp_load_attachments( $post_id, sp_postGallery &$gallery_comp = null, sp_postVideo &$video_comp = null,
+                                      sp_postAttachments &$attach_comp = null, $email_structure, $inbox, $email_number, $email_author_id ){
 
             $attachments = array();
 
@@ -153,129 +315,6 @@ if ( !class_exists("SP_Fetch_Mail") ){
                     }
                 }
             }
-        }
-
-        /**
-         * Connects to the inbox and fetches new mail.
-         *
-         * @see sp_create_post_from_email();
-         */
-        function sp_fetch_mail(){
-
-            $sp_email_settings = get_option( 'sp_email_settings' );
-
-            $imap_server_name = $sp_email_settings['imap_server_name'];
-            $imap_server_username = $sp_email_settings['imap_server_username'];
-            $imap_server_password = $sp_email_settings['imap_server_password'];
-
-            if( empty( $imap_server_name ) ){
-                error_log( 'IMAP server name not provided!');
-                return;
-            }
-
-            if( empty( $imap_server_username ) ){
-                error_log( 'IMAP server user name not provided!');
-                return;
-            }
-
-            if( empty( $imap_server_password ) ){
-                error_log( 'IMAP server password not provided!');
-                return;
-            }
-
-            $hostname = '{' . $imap_server_name . ':993/imap/ssl/novalidate-cert}INBOX';
-
-            /* try to connect */
-            $inbox = imap_open( $hostname, $imap_server_username, $imap_server_password, OP_DEBUG ) or die( print_r(imap_errors(), true) );
-
-            // grab emails
-            $search_criteria = isset( $sp_email_settings['sp_email_post_new_emails'] ) ? 'UNSEEN' : 'ALL';
-
-            //error_log( 'Searching ' . $search_criteria . ' emails' );
-
-            $emails = imap_search($inbox, $search_criteria );
-
-            //error_log( print_r( $emails, true ) );
-
-            // if emails are returned, cycle through each...
-            if( $emails ) {
-                rsort( $emails );
-                foreach( $emails as $email_number ) {
-
-                    // Get e-mail properties
-                    $overview  = imap_fetch_overview( $inbox, $email_number, 0 );
-                    $message   = quoted_printable_decode( imap_fetchbody( $inbox, $email_number, 1.1 ) );
-                    $header    = imap_headerinfo( $inbox, $email_number );
-                    $structure = imap_fetchstructure($inbox, $email_number);
-
-                    // Check that the email received exists in a user
-                    $from_address = $header->from[0]->mailbox . "@" . $header->from[0]->host;
-                    $email_author = get_user_by( 'email', $from_address );
-                    $email_author_id = $email_author->ID;
-
-                    echo 'E-mail recieved from: ' . $from_address . '<br />';
-
-                    if( $email_author !== false ){
-
-                        $default_sp_cat =  $sp_email_settings['sp_email_default_template'];
-
-                        $post_id = wp_insert_post(
-                            array(
-                                'post_title' => $overview[0]->subject,
-                                'post_author' => $email_author_id,
-                                'post_status' => 'publish',
-                                'post_category' => array( $default_sp_cat )
-                            )
-                        );
-                        $sp_post = new sp_post( $post_id );
-
-                        $sp_post_comps = $sp_post->getComponents();
-
-                        $sp_gallery_comp     = null;
-                        $sp_video_comp       = null;
-                        $sp_attachments_comp = null;
-
-                        if( !empty( $sp_post_comps ) ){
-
-                            // Flag to test if content was created or not
-                            $content_created = false;
-                            foreach( $sp_post_comps as $post_comp ){
-                                // If a content component exists, update it
-                                if( is_a( $post_comp, 'sp_postContent' ) ){
-                                    //error_log( 'Content component exists! Attempting to update it ... ' );
-                                    $post_comp->update( $message );
-                                    $content_created = true;
-                                }
-
-                                if( is_a( $post_comp, 'sp_postGallery') ){
-                                    $sp_gallery_comp = $post_comp;
-                                    //error_log( 'Gallery component exists! ... ' );
-                                }
-                                if( is_a( $post_comp, 'sp_postVideo') ){
-                                    $sp_video_comp = $post_comp;
-                                    //error_log( 'Video component exists! ... ' );
-                                }
-                                if( is_a( $post_comp, 'sp_postAttachments') ){
-                                    $sp_attachments_comp = $post_comp;
-                                    //error_log( 'Attachments component exists! ... ' );
-                                }
-                            }
-
-                            // If there is no content component, then we've got bad news!
-                            if( $content_created === false ){
-                                // Capture this and report it back to the user
-                            }
-                        }
-
-                        self::sp_load_attachments( $post_id, $sp_gallery_comp, $sp_video_comp, $sp_attachments_comp, $structure, $inbox, $email_number, $email_author_id );
-
-                        $wp_post = $sp_post->getwpPost();
-                        echo 'Post titled: "<a href="' . get_permalink( $wp_post->ID ) . '"" />' . $wp_post->post_title . '</a>" created via e-mail! <br />';
-                        echo '<br /><br />';
-                    }
-                } // end foreach
-            }
-            imap_close($inbox);
-        }
-    }
+        } //sp_load_attachments()
+    } // end class
 }

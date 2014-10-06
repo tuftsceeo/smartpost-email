@@ -79,7 +79,7 @@ if( !class_exists('SP_Email_Admin_Page') ){
 
             add_settings_field(
                 'sp_email_sp_post_behavior', // ID
-                'SmartPost New Post Behavior:', // Title
+                'New Post Behavior:', // Title
                 array( $this, 'sp_email_sp_post_behavior' ), // Callback
                 'smartpost_page_sp_email_settings', // Page
                 'sp_email_configuration',
@@ -138,15 +138,9 @@ if( !class_exists('SP_Email_Admin_Page') ){
                     <td>Password: </td>
                     <td><input type="password" name="<?php echo $arg['id'] ?>[imap_server_password]" value="<?php echo $sp_email_settings['imap_server_password'] ?>" /></td>
                 </tr>
-                <!--
                 <tr>
-                    <td>Delete E-mails after posting them: </td>
-                    <td><input type="checkbox" name="<?php echo $arg['id'] ?>[sp_email_delete_read_emails]" <?php echo empty( $sp_email_settings['sp_email_delete_read_emails'] ) ? '' : 'checked'; ?> value="true" /></td>
-                </tr>
-                -->
-                <tr>
-                    <td>Post only new (unread) e-mails: </td>
-                    <td><input type="checkbox" name="<?php echo $arg['id'] ?>[sp_email_post_new_emails]" <?php echo empty( $sp_email_settings['sp_email_post_new_emails'] ) ? '' : 'checked'; ?> value="true" /></td>
+                    <td><label for="<?php echo $arg['id'] ?>[sp_email_post_new_emails]">Post only new (unread) e-mails:</label></td>
+                    <td><input type="checkbox" id="<?php echo $arg['id'] ?>[sp_email_post_new_emails]" name="<?php echo $arg['id'] ?>[sp_email_post_new_emails]" <?php echo empty( $sp_email_settings['sp_email_post_new_emails'] ) ? '' : 'checked'; ?> value="true" /></td>
                 </tr>
             </table>
             <?php
@@ -163,7 +157,16 @@ if( !class_exists('SP_Email_Admin_Page') ){
             ?>
             <table style="border: 1px solid #cccccc; border-radius: 3px;">
                 <tr>
-                    <td>Default SmartPost template: </td>
+                    <td>
+                        <label for="<?php echo $arg['id'] ?>[sp_email_cat_tag]">Enable category tagging:</label>
+                    </td>
+                    <td>
+                        <input type="checkbox" id="<?php echo $arg['id'] ?>[sp_email_cat_tag]" name="<?php echo $arg['id'] ?>[sp_email_cat_tag]" <?php echo empty( $sp_email_settings['sp_email_cat_tag'] ) ? '' : 'checked'; ?> value="true" />
+                    </td>
+                </tr>
+
+                <tr>
+                    <td>Default SmartPost template:</td>
                     <td>
                         <?php if( !empty( $sp_categories ) ): ?>
                         <select name="<?php echo $arg['id'] ?>[sp_email_default_template]">
@@ -213,8 +216,11 @@ if( !class_exists('SP_Email_Admin_Page') ){
                 ?>
                 </form>
             <?php
-            $sp_fetch_mail = new SP_Fetch_Mail();
-            $sp_fetch_mail->sp_fetch_mail();
+
+            if( version_compare( SP_VERSION, "2.3.7" ) >= 0 ){
+                $sp_fetch_mail = new SP_Fetch_Mail();
+                $sp_fetch_mail->sp_fetch_mail();
+            }
         }
     }
     $sp_admin_page = new SP_Email_Admin_Page();
