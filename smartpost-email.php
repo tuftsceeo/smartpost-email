@@ -16,12 +16,10 @@ define( "SP_EMAIL_DEBUG", false );
 if( !class_exists( "SP_Email" ) ){
 
     class SP_Email{
-
         function __construct(){
             require_once( "class-sp-email-adminpage.php" );
             require_once( "class-sp-fetchmail.php" );
         }
-
     }
 
     $sp_email = new SP_Email();

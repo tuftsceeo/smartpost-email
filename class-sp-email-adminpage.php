@@ -4,16 +4,18 @@ if( !class_exists('SP_Email_Admin_Page') ){
 
         function __construct(){
             add_action( 'admin_notices', array( $this, 'show_settings_errors') );
-            add_action( 'admin_menu', array($this, 'sp_add_email_admin_page') );
+            add_action( 'sp_add_submenus', array($this, 'sp_add_email_admin_page') );
             add_action( 'admin_enqueue_scripts', array($this, 'admin_enqueue_scripts') );
             add_action( 'admin_init', array( $this, 'page_init' ) );
+            add_action( 'admin_init', array( 'SP_Email_Admin_Page', 'sp_email_setup_schedule' ) );
+            add_action( 'sp_email_check_emails', array( $this, 'check_emails' ) );
         }
 
         /**
          * Adds the e-mail settings page under the SmartPost parent menu
          */
         function sp_add_email_admin_page(){
-            if( ( is_plugin_active( "SmartPost2.0/smartpost.php" ) || is_plugin_active( "smartpost-templates/smartpost.php" ) ) && defined( "SP_PLUGIN_NAME" ) ){
+            if( defined( "SP_PLUGIN_NAME" ) ){
                 add_submenu_page(
                     'smartpost',
                     'E-mail Settings',
@@ -32,6 +34,7 @@ if( !class_exists('SP_Email_Admin_Page') ){
             if( 'toplevel_page_smartpost' != $hook && 'smartpost_page_sp-cat-page' != $hook && 'smartpost_page_sp_email_settings' != $hook ){
                 return;
             }
+            wp_enqueue_script( 'sp-email-admin-js', plugins_url( 'js/sp-email-admin.js', __FILE__ ) );
             wp_enqueue_style( 'sp-email-admin-page-css', plugins_url('css/sp-email-admin-page.css', __FILE__) );
         }
 
@@ -48,6 +51,31 @@ if( !class_exists('SP_Email_Admin_Page') ){
                     </div>
                 <?php
                 }
+            }
+        }
+
+        /**
+         * Sets up the frequency e-mails are checked
+         */
+        function sp_email_setup_schedule(){
+            if ( ! wp_next_scheduled( 'sp_email_check_emails' ) ) {
+                $sp_email_settings = get_option( 'sp_email_settings' );
+                $frequency = $sp_email_settings['sp_email_fetch_frequency'];
+
+                if( isset( $frequency ) && $frequency !== 0 ){
+                    wp_schedule_event( time(), $frequency, 'sp_email_check_emails');
+                }
+            }
+        }
+
+        /**
+         * Checks e-mails based on what is setup in sp_email_setup_schedule()
+         */
+        function check_emails(){
+            if( version_compare( SP_VERSION, "2.3.7" ) >= 0 ){
+                error_log( 'SP Emails: Checking e-mail now!' );
+                $sp_fetch_mail = new SP_Fetch_Mail();
+                $sp_fetch_mail->sp_fetch_mail();
             }
         }
 
@@ -93,7 +121,6 @@ if( !class_exists('SP_Email_Admin_Page') ){
          * @return mixed
          */
         function sanitize_sp_email_settings( $input ){
-            //error_log( print_r( $input, true ) );
 
             if( empty( $input['imap_server_name'] ) ){
                 add_settings_error( 'sp_email_configuration_form', 'sp_imap_server_name_empty', 'Error: Please provide an IMAP server name!' );
@@ -127,20 +154,41 @@ if( !class_exists('SP_Email_Admin_Page') ){
             ?>
             <table style="border: 1px solid #cccccc; border-radius: 3px;">
                 <tr>
-                    <td>IMAP Server Name (i.e. imap.gmail.com): </td>
+                    <td>IMAP Server Name: </td>
                     <td><input type="text" name="<?php echo $arg['id'] ?>[imap_server_name]" value="<?php echo $sp_email_settings['imap_server_name'] ?>" /></td>
+                    <td><i>(i.e. imap.gmail.com)</i></td>
                 </tr>
                 <tr>
                     <td>Username: </td>
                     <td><input type="text" name="<?php echo $arg['id'] ?>[imap_server_username]" value="<?php echo $sp_email_settings['imap_server_username'] ?>" /> </td>
+                    <td><i>The username used for logging into the e-mail account (i.e. username@gmail.com)</i></td>
                 </tr>
                 <tr>
                     <td>Password: </td>
                     <td><input type="password" name="<?php echo $arg['id'] ?>[imap_server_password]" value="<?php echo $sp_email_settings['imap_server_password'] ?>" /></td>
+                    <td><i>The password used for logging into the e-mail account</i></td>
                 </tr>
                 <tr>
                     <td><label for="<?php echo $arg['id'] ?>[sp_email_post_new_emails]">Post only new (unread) e-mails:</label></td>
                     <td><input type="checkbox" id="<?php echo $arg['id'] ?>[sp_email_post_new_emails]" name="<?php echo $arg['id'] ?>[sp_email_post_new_emails]" <?php echo empty( $sp_email_settings['sp_email_post_new_emails'] ) ? '' : 'checked'; ?> value="true" /></td>
+                    <td><i>Only unread e-mails will be posted</i></td>
+                </tr>
+                <tr>
+                    <td>Schedule for checking e-mails:</td>
+                    <td>
+                        <select name="<?php echo $arg['id'] ?>[sp_email_fetch_frequency]">
+                            <option value="0">Select a schedule ...</option>
+                            <?php
+                                $sp_email_frequency = $sp_email_settings['sp_email_fetch_frequency'];
+                                $freq_options = array('hourly' => 'Hourly', 'daily' => 'Daily', 'twicedaily' => 'Twice Daily');
+                                foreach( $freq_options as $freq_id => $freq_lbl ){
+                                    $selected = $sp_email_frequency == $freq_id ? 'selected' : '';
+                                    echo '<option value="' . $freq_id . '" ' . $selected . '>' . $freq_lbl . '</option>';
+                                }
+                            ?>
+                        </select>
+                    </td>
+                    <td><i>How often to check for new e-mails</i></td>
                 </tr>
             </table>
             <?php
@@ -162,6 +210,14 @@ if( !class_exists('SP_Email_Admin_Page') ){
                     </td>
                     <td>
                         <input type="checkbox" id="<?php echo $arg['id'] ?>[sp_email_cat_tag]" name="<?php echo $arg['id'] ?>[sp_email_cat_tag]" <?php echo empty( $sp_email_settings['sp_email_cat_tag'] ) ? '' : 'checked'; ?> value="true" />
+                    </td>
+                    <td>
+                        <i>
+                           Allows users to tag their e-mails in a category in the subject line.
+                           It should follow the form [category name]: [post title] - i.e. "Assignment 1: My assignment 1 post" will be tagged in
+                           the category "Assignment 1" if it exists, otherwise it will fall back to the default category picked in the "Default SmartPost template"
+                           setting.
+                        </i>
                     </td>
                 </tr>
 
@@ -191,8 +247,6 @@ if( !class_exists('SP_Email_Admin_Page') ){
          * Renders the E-mail Settings Page
          */
         function sp_render_email_admin_page(){
-            //$sp_email_settings = get_option( 'sp_email_settings' );
-            //print_r( $sp_email_settings );
             ?>
             <div class="wrap">
                 <h2 id="sp-email-admin-page-header"><?php echo SP_EMAIL_PLUGIN_NAME ?></h2>
@@ -207,20 +261,18 @@ if( !class_exists('SP_Email_Admin_Page') ){
                     <li>Only IMAP servers are supported at this  time.</li>
                     <li>Only SSL (port 993) connections are supported at this time - this means your IMAP E-mail server has to support SSL connection on port 993.</li>
                 </ul>
+
+
                 <form id="sp_email_configuration_form" method="post" action="options.php">
                 <?php
                     // This prints out all hidden setting fields
                     settings_fields( 'sp_email_settings' );
                     do_settings_sections( 'smartpost_page_sp_email_settings' );
-                    submit_button( 'Save' );
+                    submit_button( 'Save Settings', 'primary', 'submit', false );
                 ?>
+                <!-- <button id="sp-email-check-now" type="button" class="button button-primary">Check For E-mails Now</button> -->
                 </form>
             <?php
-
-            if( version_compare( SP_VERSION, "2.3.7" ) >= 0 ){
-                $sp_fetch_mail = new SP_Fetch_Mail();
-                $sp_fetch_mail->sp_fetch_mail();
-            }
         }
     }
     $sp_admin_page = new SP_Email_Admin_Page();

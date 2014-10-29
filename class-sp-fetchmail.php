@@ -3,9 +3,7 @@ if ( !class_exists("SP_Fetch_Mail") ){
 
     class SP_Fetch_Mail {
 
-        function __construct(){
-
-        }
+        function __construct(){}
 
         /**
          * Connects to the inbox and fetches new mail.
@@ -43,11 +41,7 @@ if ( !class_exists("SP_Fetch_Mail") ){
             // grab emails
             $search_criteria = isset( $sp_email_settings['sp_email_post_new_emails'] ) ? 'UNSEEN' : 'ALL';
 
-            //error_log( 'Searching ' . $search_criteria . ' emails' );
-
             $emails = imap_search($inbox, $search_criteria );
-
-            //error_log( print_r( $emails, true ) );
 
             // if emails are returned, cycle through each...
             if( $emails ) {
@@ -55,8 +49,8 @@ if ( !class_exists("SP_Fetch_Mail") ){
                 foreach( $emails as $email_number ) {
 
                     // Get e-mail properties
-                    $overview  = imap_fetch_overview( $inbox, $email_number, 0 );
-                    $message   = quoted_printable_decode( imap_fetchbody( $inbox, $email_number, 1.1 ) );
+                    $overview = imap_fetch_overview( $inbox, $email_number, 0 );
+                    $message  = quoted_printable_decode( imap_fetchbody( $inbox, $email_number, 1.1 ) );
 
                     if( empty( $message ) ){
                         $message = imap_fetchbody( $inbox, $email_number, 2 );
@@ -80,8 +74,6 @@ if ( !class_exists("SP_Fetch_Mail") ){
                             // Try and get a category name via subject line (format should be "<category-name>:Title of the post")
                             $maybe_get_cat = substr( $subject, 0, strpos( $subject, ':' ) );
                         }
-
-                        error_log( 'maybe_get_cat: ' . $maybe_get_cat );
 
                         if( isset( $maybe_get_cat ) && !empty( $maybe_get_cat ) ){
 
@@ -133,22 +125,18 @@ if ( !class_exists("SP_Fetch_Mail") ){
                             foreach( $sp_post_comps as $post_comp ){
                                 // If a content component exists, update it
                                 if( is_a( $post_comp, 'sp_postContent' ) ){
-                                    //error_log( 'Content component exists! Attempting to update it ... ' );
                                     $post_comp->update( $message );
                                     $content_created = true;
                                 }
 
                                 if( is_a( $post_comp, 'sp_postGallery') ){
                                     $sp_gallery_comp = $post_comp;
-                                    //error_log( 'Gallery component exists! ... ' );
                                 }
                                 if( is_a( $post_comp, 'sp_postVideo') ){
                                     $sp_video_comp = $post_comp;
-                                    //error_log( 'Video component exists! ... ' );
                                 }
                                 if( is_a( $post_comp, 'sp_postAttachments') ){
                                     $sp_attachments_comp = $post_comp;
-                                    //error_log( 'Attachments component exists! ... ' );
                                 }
                             }
 
@@ -161,8 +149,8 @@ if ( !class_exists("SP_Fetch_Mail") ){
                         self::sp_load_attachments( $post_id, $sp_gallery_comp, $sp_video_comp, $sp_attachments_comp, $structure, $inbox, $email_number, $email_author_id );
 
                         $wp_post = $sp_post->getwpPost();
-                        echo 'Post titled: "<a href="' . get_permalink( $wp_post->ID ) . '"" />' . $wp_post->post_title . '</a>" created via e-mail! <br />';
-                        echo '<br /><br />';
+                        //echo 'Post titled: "<a href="' . get_permalink( $wp_post->ID ) . '"" />' . $wp_post->post_title . '</a>" created via e-mail! <br />';
+                        //echo '<br /><br />';
                     }
                 } // end foreach
             }
