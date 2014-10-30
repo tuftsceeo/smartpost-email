@@ -200,7 +200,7 @@ if( !class_exists('SP_Email_Admin_Page') ){
                             ?>
                         </select>
                     </td>
-                    <td><i>How often to check for new e-mails</i></td>
+                    <td><i>How often to check for new e-mails. <b>Note: refreshing this will page will pull in unread e-mail manually.</b></i></td>
                 </tr>
             </table>
             <?php
