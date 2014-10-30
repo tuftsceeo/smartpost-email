@@ -3,14 +3,29 @@ if ( !class_exists("SP_Fetch_Mail") ){
 
     class SP_Fetch_Mail {
 
-        function __construct(){}
+        function __construct(){
+            add_filter( 'cron_schedules', array( $this, 'cron_add_every_min' ) );
+        }
+
+        /**
+         * Add a "Every Minute" option to the cron scheduler
+         * @param $schedules
+         * @return mixed
+         */
+        function cron_add_every_min( $schedules ) {
+            $schedules['every_minute'] = array(
+                'interval' => 60,
+                'display' => __( 'Every 1 minute' )
+            );
+            return $schedules;
+        }
 
         /**
          * Connects to the inbox and fetches new mail.
          *
          * @see sp_create_post_from_email();
          */
-        function sp_fetch_mail(){
+        public static function sp_fetch_mail(){
 
             $sp_email_settings = get_option( 'sp_email_settings' );
 
@@ -50,11 +65,16 @@ if ( !class_exists("SP_Fetch_Mail") ){
 
                     // Get e-mail properties
                     $overview = imap_fetch_overview( $inbox, $email_number, 0 );
-                    $message  = quoted_printable_decode( imap_fetchbody( $inbox, $email_number, 1.1 ) );
 
+                    // For now grab the text parts of the message - @see http://stackoverflow.com/questions/5177772/how-to-use-imap-in-php-to-fetch-mail-body-content
+                    $message = imap_fetchbody( $inbox, $email_number, 1 );
+
+                    /*
+                    $message  = quoted_printable_decode( imap_fetchbody( $inbox, $email_number, 1.1 ) );
                     if( empty( $message ) ){
                         $message = imap_fetchbody( $inbox, $email_number, 2 );
                     }
+                    */
 
                     $header    = imap_headerinfo( $inbox, $email_number );
                     $structure = imap_fetchstructure($inbox, $email_number);
@@ -100,6 +120,11 @@ if ( !class_exists("SP_Fetch_Mail") ){
                             // If we can find a category, fallback to the default cat
                             $default_sp_cat = $sp_email_settings['sp_email_default_template'];
                             $post_title = $overview[0]->subject;
+                        }
+
+                        // If there is no subject, default to "User's Category Name Post"
+                        if( empty( $post_title ) ){
+                            $post_title = $email_author->display_name . '\'s ' . get_cat_name( $default_sp_cat ) . ' post';
                         }
 
                         $post_id = wp_insert_post(
@@ -149,8 +174,10 @@ if ( !class_exists("SP_Fetch_Mail") ){
                         self::sp_load_attachments( $post_id, $sp_gallery_comp, $sp_video_comp, $sp_attachments_comp, $structure, $inbox, $email_number, $email_author_id );
 
                         $wp_post = $sp_post->getwpPost();
-                        //echo 'Post titled: "<a href="' . get_permalink( $wp_post->ID ) . '"" />' . $wp_post->post_title . '</a>" created via e-mail! <br />';
-                        //echo '<br /><br />';
+                        if( is_admin() ){
+                            echo 'Post titled: "<a href="' . get_permalink( $wp_post->ID ) . '"" />' . $wp_post->post_title . '</a>" created via e-mail! <br />';
+                            echo '<br /><br />';
+                        }
                     }
                 } // end foreach
             }
@@ -279,30 +306,38 @@ if ( !class_exists("SP_Fetch_Mail") ){
                         case 'tiff':
                         case 'tif' :
                             // add to gallery component
-                            $attach_id = sp_core::create_attachment( $full_filename, $post_id, $filename, $email_author_id );
-                            $allowed_exts = array( 'jpeg', 'jpg', 'tiff', 'tif' );
-                            if( in_array( $file_ext, $allowed_exts) ){
-                                sp_core::fixImageOrientation( get_attached_file( $attach_id ) );
+                            if( !is_null( $gallery_comp ) ){
+                                $attach_id = sp_core::create_attachment( $full_filename, $post_id, $filename, $email_author_id );
+                                $allowed_exts = array( 'jpeg', 'jpg', 'tiff', 'tif' );
+                                if( in_array( $file_ext, $allowed_exts) ){
+                                    sp_core::fixImageOrientation( get_attached_file( $attach_id ) );
+                                }
+                                array_push( $gallery_comp->attachmentIDs, $attach_id );
+                                $gallery_comp->update();
                             }
-                            array_push( $gallery_comp->attachmentIDs, $attach_id );
-                            $gallery_comp->update();
                             break;
                         case 'mov':
                         case 'mp4':
                         case 'avi':
                         case 'm4v':
-                            // add to video component & convert
-                            $video_comp::encode_via_ffmpeg( $video_comp, $full_filename );
+                            if( !is_null( $video_comp ) ){
+                                // add to video component & convert
+                                $video_comp::encode_via_ffmpeg( $video_comp, $full_filename );
+                            }
                             break;
                         default:
                             // add to attachments component
-                            $attach_id = sp_core::create_attachment( $full_filename, $post_id, $filename, $email_author_id );
-                            array_push( $attach_comp->attachmentIDs, $attach_id );
-                            $attach_comp->update();
+                            if( !is_null( $attach_comp ) ){
+                                $attach_id = sp_core::create_attachment( $full_filename, $post_id, $filename, $email_author_id );
+                                array_push( $attach_comp->attachmentIDs, $attach_id );
+                                $attach_comp->update();
+                            }
                             break;
                     }
                 }
             }
         } //sp_load_attachments()
     } // end class
+
+    $sp_fetch_mail = new SP_Fetch_Mail();
 }

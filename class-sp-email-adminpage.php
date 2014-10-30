@@ -58,13 +58,26 @@ if( !class_exists('SP_Email_Admin_Page') ){
          * Sets up the frequency e-mails are checked
          */
         function sp_email_setup_schedule(){
-            if ( ! wp_next_scheduled( 'sp_email_check_emails' ) ) {
-                $sp_email_settings = get_option( 'sp_email_settings' );
-                $frequency = $sp_email_settings['sp_email_fetch_frequency'];
 
+            $sp_email_settings = get_option( 'sp_email_settings' );
+            $frequency = $sp_email_settings['sp_email_fetch_frequency'];
+
+            if ( ! wp_next_scheduled( 'sp_email_check_emails' ) ) {
                 if( isset( $frequency ) && $frequency !== 0 ){
                     wp_schedule_event( time(), $frequency, 'sp_email_check_emails');
                 }
+            }else{
+                // Get the current schedule, if we've updated it, un-schedule the previous recurrence
+                $current_schedule = wp_get_schedule( 'sp_email_check_emails' );
+
+                if( $current_schedule !== $frequency ){
+                    $timestamp = wp_next_scheduled( 'sp_email_check_emails' );
+                    wp_unschedule_event( $timestamp, 'sp_email_check_emails' );
+                    if( isset( $frequency ) && $frequency !== 0 ){
+                        wp_schedule_event( time(), $frequency, 'sp_email_check_emails');
+                    }
+                }
+
             }
         }
 
@@ -74,8 +87,7 @@ if( !class_exists('SP_Email_Admin_Page') ){
         function check_emails(){
             if( version_compare( SP_VERSION, "2.3.7" ) >= 0 ){
                 error_log( 'SP Emails: Checking e-mail now!' );
-                $sp_fetch_mail = new SP_Fetch_Mail();
-                $sp_fetch_mail->sp_fetch_mail();
+                SP_Fetch_Mail::sp_fetch_mail();
             }
         }
 
@@ -180,7 +192,7 @@ if( !class_exists('SP_Email_Admin_Page') ){
                             <option value="0">Select a schedule ...</option>
                             <?php
                                 $sp_email_frequency = $sp_email_settings['sp_email_fetch_frequency'];
-                                $freq_options = array('hourly' => 'Hourly', 'daily' => 'Daily', 'twicedaily' => 'Twice Daily');
+                                $freq_options = array('every_minute' => 'Every minute', 'hourly' => 'Hourly', 'daily' => 'Daily', 'twicedaily' => 'Twice Daily');
                                 foreach( $freq_options as $freq_id => $freq_lbl ){
                                     $selected = $sp_email_frequency == $freq_id ? 'selected' : '';
                                     echo '<option value="' . $freq_id . '" ' . $selected . '>' . $freq_lbl . '</option>';
@@ -273,6 +285,7 @@ if( !class_exists('SP_Email_Admin_Page') ){
                 <!-- <button id="sp-email-check-now" type="button" class="button button-primary">Check For E-mails Now</button> -->
                 </form>
             <?php
+            SP_Fetch_Mail::sp_fetch_mail();
         }
     }
     $sp_admin_page = new SP_Email_Admin_Page();
