@@ -67,17 +67,32 @@ if ( !class_exists("SP_Fetch_Mail") ){
                     $overview = imap_fetch_overview( $inbox, $email_number, 0 );
 
                     // For now grab the text parts of the message - @see http://stackoverflow.com/questions/5177772/how-to-use-imap-in-php-to-fetch-mail-body-content
-                    $message = imap_fetchbody( $inbox, $email_number, 1 );
-
-                    /*
-                    $message  = quoted_printable_decode( imap_fetchbody( $inbox, $email_number, 1.1 ) );
-                    if( empty( $message ) ){
-                        $message = imap_fetchbody( $inbox, $email_number, 2 );
-                    }
-                    */
-
                     $header    = imap_headerinfo( $inbox, $email_number );
                     $structure = imap_fetchstructure($inbox, $email_number);
+
+                    // Grab the plain-text from the e-mail, currently doesn't work with HTML
+                    if( isset( $structure->parts ) ) {
+                        $message = array();
+                        foreach( $structure->parts as $part_id => $part ){
+                            if( $part->type === 0 && $part->subtype == 'PLAIN' ){ // Keep track of only plain text for now
+                                array_push( $message, imap_fetchbody( $inbox, $email_number, $part_id+1 ) );
+                            }
+
+                            // sometimes this happens with weirdly structured e-mails
+                            if( isset( $part->parts ) ){
+                                foreach( $part->parts as $subpart_id => $subpart ){
+                                    if( $subpart->type === 0 && $subpart->subtype == 'PLAIN' ){
+                                        $subpart_section = ($part_id+1) . '.' . ($subpart_id+1);
+                                        error_log( $subpart_section );
+                                        array_push( $message, imap_fetchbody( $inbox, $email_number, $subpart_section ) );
+                                    }
+                                }
+                            }
+                        }
+                        $message = implode( '', $message );
+                    }else{
+                        $message = '';
+                    }
 
                     // Check that the email received exists in a user
                     $from_address = $header->from[0]->mailbox . "@" . $header->from[0]->host;
@@ -211,10 +226,8 @@ if ( !class_exists("SP_Fetch_Mail") ){
             $attachments = array();
 
             // if any attachments found ...
-            if( isset( $email_structure->parts ) && count( $email_structure->parts ) )
-            {
-                for( $i = 0; $i < count( $email_structure->parts ); $i++ )
-                {
+            if( isset( $email_structure->parts ) && count( $email_structure->parts ) ) {
+                for( $i = 0; $i < count( $email_structure->parts ); $i++ ) {
                     $attachments[$i] = array(
                         'is_attachment' => false,
                         'filename' => '',
@@ -296,7 +309,7 @@ if ( !class_exists("SP_Fetch_Mail") ){
                     // correspond attachments with components
                     $file_ext = strtolower( pathinfo( $full_filename, PATHINFO_EXTENSION ) );
 
-                    //error_log( 'attachment extension: ' . $file_ext );
+                    // error_log( 'attachment extension: ' . $file_ext );
 
                     switch( $file_ext ){
                         case 'jpg' :
@@ -331,12 +344,49 @@ if ( !class_exists("SP_Fetch_Mail") ){
                                 $attach_id = sp_core::create_attachment( $full_filename, $post_id, $filename, $email_author_id );
                                 array_push( $attach_comp->attachmentIDs, $attach_id );
                                 $attach_comp->update();
+
+                                if( $file_ext == 'pdf' ){
+                                    self::generate_pdf_thumb( $full_filename, $post_id, $email_author_id ); // generate a pdf thumb if it's a .pdf
+                                }
                             }
                             break;
                     }
                 }
             }
-        } //sp_load_attachments()
+        } // sp_load_attachments()
+
+        /**
+         * If an attachment is present and it's a .pdf, generate a thumbnail for it
+         * @param $pdf_file
+         * @param $post_id
+         * @param $email_author_id
+         */
+        function generate_pdf_thumb( $pdf_file, $post_id, $email_author_id ){
+
+            if( class_exists( 'Imagick' ) ){
+
+                $post_thumb_id = get_post_thumbnail_id( $post_id );
+
+                if( $post_thumb_id === '' ){ // if there is no set thumbnail, create one
+                    $wp_upload_dir = wp_upload_dir();
+                    $file_info = pathinfo( $pdf_file );
+                    $img_save_path = $wp_upload_dir['path'] . DIRECTORY_SEPARATOR . $file_info['filename'] . '.jpg';
+
+                    if( file_exists( $pdf_file ) ){
+                        $img = new Imagick( $pdf_file . '[0]' );
+                        $img->setImageFormat( 'jpg' );
+                        $img->writeImage( $img_save_path );
+
+                        if( file_exists( $img_save_path ) ){
+                            $attach_id = sp_core::create_attachment( $img_save_path, $post_id, $file_info['filename'] . '.jpg', $email_author_id );
+
+                            update_post_meta( $post_id, '_thumbnail_id', $attach_id );
+                        }
+                    }
+                }
+            }
+        }
+
     } // end class
 
     $sp_fetch_mail = new SP_Fetch_Mail();
