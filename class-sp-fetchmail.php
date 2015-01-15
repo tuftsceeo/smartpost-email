@@ -70,12 +70,14 @@ if ( !class_exists("SP_Fetch_Mail") ){
                     $header    = imap_headerinfo( $inbox, $email_number );
                     $structure = imap_fetchstructure($inbox, $email_number);
 
+	                error_log( print_r( $structure, true ) );
+
                     // Grab the plain-text from the e-mail, currently doesn't work with HTML
                     if( isset( $structure->parts ) ) {
                         $message = array();
                         foreach( $structure->parts as $part_id => $part ){
                             if( $part->type === 0 && $part->subtype == 'PLAIN' ){ // Keep track of only plain text for now
-                                array_push( $message, imap_fetchbody( $inbox, $email_number, $part_id+1 ) );
+	                            array_push( $message, self::decode_email_content( $part->encoding, imap_fetchbody( $inbox, $email_number, $part_id+1 ) ) );
                             }
 
                             // sometimes this happens with weirdly structured e-mails
@@ -83,8 +85,7 @@ if ( !class_exists("SP_Fetch_Mail") ){
                                 foreach( $part->parts as $subpart_id => $subpart ){
                                     if( $subpart->type === 0 && $subpart->subtype == 'PLAIN' ){
                                         $subpart_section = ($part_id+1) . '.' . ($subpart_id+1);
-                                        error_log( $subpart_section );
-                                        array_push( $message, imap_fetchbody( $inbox, $email_number, $subpart_section ) );
+                                        array_push( $message, self::decode_email_content( $subpart->encoding, imap_fetchbody( $inbox, $email_number, $subpart_section ) ));
                                     }
                                 }
                             }
@@ -309,8 +310,6 @@ if ( !class_exists("SP_Fetch_Mail") ){
                     // correspond attachments with components
                     $file_ext = strtolower( pathinfo( $full_filename, PATHINFO_EXTENSION ) );
 
-                    // error_log( 'attachment extension: ' . $file_ext );
-
                     switch( $file_ext ){
                         case 'jpg' :
                         case 'jpeg':
@@ -354,6 +353,23 @@ if ( !class_exists("SP_Fetch_Mail") ){
                 }
             }
         } // sp_load_attachments()
+
+	    /**
+	     * @param $encoding
+	     * @param $content
+	     *
+	     * @return mixed
+	     */
+	    function decode_email_content( $encoding, $content ){
+			switch( $encoding ){
+				case 3: // Base64
+					return base64_decode( $content );
+				case 4: // Quoted-Printable
+					return quoted_printable_decode( $content );
+				default:
+					return $content;
+			}
+	    }
 
         /**
          * If an attachment is present and it's a .pdf, generate a thumbnail for it
